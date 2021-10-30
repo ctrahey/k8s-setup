@@ -1,0 +1,10 @@
+dns: 
+- 10.0.10.0
+- 8.8.8.8
+- 8.8.4.4
+ipv4Pattern:
+  control: 10.32.0.%d/11
+  worker: 10.64.0.%d/11
+podCIDR: 10.96.0.0/11
+svcCIDR: 10.128.0.0/11
+ssh_authorized_keys: []
