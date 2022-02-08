@@ -1,10 +1,68 @@
-dns: 
-- 10.0.10.0
-- 8.8.8.8
-- 8.8.4.4
-ipv4Pattern:
-  control: 10.32.0.%d/11
-  worker: 10.64.0.%d/11
-podCIDR: 10.96.0.0/11
-svcCIDR: 10.128.0.0/11
 ssh_authorized_keys: []
+overwrite_boot: ./bootdir_base/system-boot
+image: ./bootdir_base/image.img
+network:
+  kubeAPI: 10.0.100.100
+  podCIDR: 10.96.0.0/11
+  svcCIDR: 10.128.0.0/11
+  networks:
+    dmz:
+      gateway: 10.0.0.253
+      cidr: 10.0.0.0/11
+      offset: 1
+    control:
+      gateway: 10.32.0.254
+      cidr: 10.32.0.0/11
+      offset: 1
+      dns:
+        - 10.0.10.0
+        - 8.8.8.8
+        - 8.8.4.4
+    worker:
+      gateway: 10.64.0.254
+      cidr: 10.64.0.0/11
+      offset: 1
+      dns:
+        - 10.0.10.0
+        - 8.8.8.8
+        - 8.8.4.4
+    storage:
+      gateway: 10.160.0.254
+      cidr: 10.160.0.0/11
+      offset: 1
+
+  networkHardwareProfiles:
+    rpi:
+      ethernets:
+        k8s:
+          match: eth0
+          alias: storage
+    hp:
+      bonds:
+        k8s: en01*
+        ceph: en01*
+
+
+  netAttachments:
+    control:
+      - network: dmz
+        vlan: 20
+        staticIPv4: false
+        dhcp: false
+        device: k8s
+      - network: control
+        staticIPv4: true
+        dhcp: false
+        vlan: 10
+        device: k8s
+    worker:
+      - network: worker
+        staticIPv4: true
+        dhcp: false
+        vlan: 10
+        device: k8s
+      - network: storage
+        staticIPv4: true
+        dhcp: false
+        vlan: 40
+        device: storage

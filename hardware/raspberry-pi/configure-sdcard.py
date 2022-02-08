@@ -15,6 +15,8 @@ The files which are actually copied to the SDCard are produced from Jinja templa
 import os
 import argparse
 import os.path
+import random
+
 import yaml
 from yaml import load, dump
 try:
@@ -40,14 +42,56 @@ def check_dest(destination):
     return True
 
 
-def main(node_type, node_index, destination, dry_run):
-    assert check_dest(destination), "Destination does not appear to be linux boot volume."
+def compile_network_stanzas(cfg, hardware, node_role, node_index):
+    from pprint import pprint as pp
 
+    def address_for_node(cidr: str, offset: int):
+        return cidr.replace('.0/', f".{node_index + offset}/")
+
+    profile = cfg['networkHardwareProfiles'][hardware]
+    device_alias = {}
+    ethernets = {}
+    for eth in profile.get('ethernets', []):
+        ethernets[eth] = {
+            'match': {'name': profile['ethernets'][eth]['match']}
+        }
+        if 'alias' in profile['ethernets'][eth]:
+            device_alias[profile['ethernets'][eth]['alias']] = eth
+    for bnd in profile.get('bonds', []):
+        #  @todo bonds
+        pass
+
+    networks = cfg['networks']
+    vlans = {}
+    for att in cfg['netAttachments'][node_role]:
+        nw = networks[att['network']]
+        block = {
+            'id': att['vlan'],
+            'addresses': [address_for_node(nw['cidr'], nw['offset'])] if att.get('staticIPv4', False) else [],
+            'link': device_alias.get(att['device'], att['device']),
+            'dhcp4': att.get('dhcp', False) and not att.get('staticIPv4', False),
+            'nameservers': {
+                'addresses': nw.get('dns', [])
+            }
+        }
+        if att.get('staticIPv4', False) and 'gateway' in nw:
+            block['gateway4'] = nw['gateway']
+        vlans[att['network']] = block
+    netwk = {
+        'version': 2,
+        'ethernets': ethernets,
+        'bonds': {},
+        'vlans': vlans
+    }
+    return netwk
+
+
+def main(cfg, hardware, node_role, node_index, destination, dry_run):
+    base = os.path.normpath(os.path.dirname(__file__))
+    if not dry_run:
+        assert check_dest(destination), "Destination does not appear to be linux boot volume."
     pw = input("User Password:")
     pw_hash = sha512_crypt.using(rounds=4096).hash(pw.strip())
-
-    with open('./config.yaml', 'r') as cfg_file:
-        cfg = load(cfg_file, Loader=Loader)
 
     def outfile(path, content):
         if dry_run:
@@ -59,33 +103,17 @@ def main(node_type, node_index, destination, dry_run):
                     f.write("#cloud-config\n")
                 f.write(content)
 
-    ipv4pattern = cfg['ipv4Pattern'][node_type]
-    ipv4 = ipv4pattern % node_index
-    ipv4GW = ipv4pattern[:-3] % 254
-    netwk = {
-        'version': 2,
-        'ethernets': {
-            'eth0': {
-                'dhcp4': 'no',
-                'addresses': [
-                    ipv4
-                ],
-                'gateway4': ipv4GW,
-                'nameservers': {
-                    'addresses': cfg['dns']
-                }
-            }
-        }
-    }
-    nw_out = yaml.dump(netwk)
+
+    netwk = compile_network_stanzas(cfg['network'], hardware, node_role, node_index)
+    nw_out = yaml.dump(netwk, sort_keys=False)
     outfile('network-config', nw_out)
     meta = {
-        'instance_id': f"{node_type}{node_index}",
-        'local-hostname': f"{node_type}{node_index}",
+        # randint is for cloud-init to recognize a first-boot
+        'instance_id': f"{node_role}{node_index}-{random.randint(10000,99999)}",
+        'local-hostname': f"{node_role}{node_index}",
     }
     meta_out = yaml.dump(meta)
     outfile('meta-data', meta_out)
-    base = os.path.normpath(os.path.dirname(__file__))
     with open(f"{base}/setup.sh") as setup_file:
         setup_contents = setup_file.read()
     userdata = {
@@ -108,7 +136,7 @@ def main(node_type, node_index, destination, dry_run):
             }
         ],
         'package_update': True,
-        'package_upgrade': True,
+        'package_upgrade': False,
         'write_files': [
             {
                 'path': '/usr/bin/setup.sh',
@@ -117,9 +145,10 @@ def main(node_type, node_index, destination, dry_run):
                 'owner': 'root:root'
             }
         ],
-        # 'runcmd': [
-        #     ['/usr/bin/setup.sh']
-        # ]
+        'runcmd': [
+            ['apt-mark', 'hold', 'linux-firmware', 'linux-headers-raspi', 'linux-image-raspi', 'linux-raspi', 'linux-base']
+            # ['/usr/bin/setup.sh']
+        ]
     }
     userdata_out = yaml.dump(userdata, width=1000)
     outfile('user-data', userdata_out)
@@ -133,11 +162,20 @@ def main(node_type, node_index, destination, dry_run):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('-i', '--index', help="Node index for hostname, etc.", required=True)
-    parser.add_argument('-t', '--type',
+    parser.add_argument('--image', help="Should we perform imaging first?",
+                        action='store_true', default=False)
+    parser.add_argument('-r', '--role',
                         choices=['control', 'worker', 'xtra'],
-                        help="Node type", default="worker")
+                        help="Node role", default="worker")
+    parser.add_argument('--hardware',
+                        choices=['rpi'],
+                        help="Hardware profile", default="rpi")
     parser.add_argument('-d', '--dest', help="Destination - where to copy cloud-init files", required=True)
     parser.add_argument('--dry-run', help="Dry-run, do not actually write to destination but show what we would write",
                         action='store_true', default=False)
     args = parser.parse_args()
-    main(args.type, int(args.index), args.dest, args.dry_run)
+
+    with open('./config.yaml', 'r') as cfg_file:
+        cfg = load(cfg_file, Loader=Loader)
+
+    main(cfg, args.hardware, args.role, int(args.index), args.dest, args.dry_run)

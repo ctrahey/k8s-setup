@@ -15,3 +15,14 @@ require touch-ups for sharing (like username created on hosts). These should be 
 ```commandline
 ./configure-sdcard.py -d /Volumes/system-boot -t worker -i 1
 ```
+
+# Networking
+Networking is specified in terms of three primitives:
+1. Hardware Profiles - describes the physical setup of the machine. Specify eth devices & bonds
+2. Networks - the Layer 3 definitions of networks, essentially giving a semantic name to a CIDR
+3. NetAttachments - a binding between hardware and network. Currently makes every attachment a VLAN.
+
+The choice to make every attachment a VLAN might be reconsidered. It has the disadvantage that the switch
+needs to be configured for "tagged" packets for any networking to work (e.g. there will be no un-tagged
+traffic from this host). However, there is an advantage that broadcast domains are not explicit-only, which
+may simplify reasoning about the network.
