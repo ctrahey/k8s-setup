@@ -1,0 +1,9 @@
+[Unit]
+Description=Script to add iptables rules to allow keepalived negotiation
+After=network.target
+
+[Service]
+ExecStart=/usr/local/startup-iptables.sh
+
+[Install]
+WantedBy=multi-user.target

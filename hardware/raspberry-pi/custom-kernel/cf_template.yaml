@@ -1,0 +1,83 @@
+Description:
+  Comile the Linux Kernel on an Ephemeral AWS instance
+Parameters:
+  KeyPairName:
+    Description: Amazon EC2 Key Pair
+    Type: "AWS::EC2::KeyPair::KeyName"
+Resources:
+  IGW:
+    Type: AWS::EC2::InternetGateway
+  KernelCompilerVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+  KernelCompilerSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.0/24
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref KernelCompilerVPC
+  IGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref IGW
+      VpcId: !Ref KernelCompilerVPC
+  PublicSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH from all
+      GroupName: PublicSSH
+      SecurityGroupIngress:
+        - CidrIp: 0.0.0.0/0
+          Description: Allow Public SSH
+          IpProtocol: TCP
+          FromPort: 22
+          ToPort: 22
+      VpcId: !Ref KernelCompilerVPC
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref KernelCompilerVPC
+  Routes:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref IGW
+      RouteTableId: !Ref RouteTable
+  RouteAssn:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref RouteTable
+      SubnetId: !Ref KernelCompilerSubnet
+  KernelCompilerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: "ami-078278691222aee06"
+      InstanceType: m6g.4xlarge
+      KeyName: !Ref KeyPairName
+      SubnetId: !Ref KernelCompilerSubnet
+      SecurityGroupIds:
+        - !Ref PublicSG
+      BlockDeviceMappings:
+        - DeviceName: /dev/sda1
+          Ebs:
+            VolumeSize: 50
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          KERNELPKG=$(apt-cache search linux-image-5.4.0 | grep raspi | sort | tail -n 1 | awk '{print $1}')
+          echo "deb-src http://us-west-2.ec2.ports.ubuntu.com/ubuntu-ports/ focal main restricted" >> /etc/apt/sources.list
+          echo "deb-src http://us-west-2.ec2.ports.ubuntu.com/ubuntu-ports/ focal-updates main restricted" >> /etc/apt/sources.list
+          sudo apt-get update
+          sudo apt-get install -y libncurses-dev gawk flex bison openssl libssl-dev dkms libelf-dev libudev-dev libpci-dev libiberty-dev autoconf git fakeroot
+          sudo apt-get -y build-dep linux $KERNELPKG
+          cd /home/ubuntu
+          apt-get -y source $KERNELPKG
+          cd linux-raspi-5.4.0/
+          chmod a+x debian/rules debian/scripts/* debian/scripts/misc/*
+          echo "foo" > /var/log/trahey.log
+Outputs:
+  PublicIP:
+    Value: !GetAtt KernelCompilerInstance.PublicIp
+  PublicDNS:
+    Value: !GetAtt KernelCompilerInstance.PublicDnsName

@@ -4,31 +4,13 @@ apt-get build-dep linux linux-image-$(uname -r)
 vim /etc/apt/sources.list
 sudo apt-get update
 apt-get build-dep linux linux-image-$(uname -r)
-sudo apt-get install libncurses-dev gawk flex bison openssl libssl-dev dkms libelf-dev libudev-dev libpci-dev libiberty-dev autoconf
-sudo apt-get install git
-apt-get source linux-image-unsigned-$(uname -r)
-uname-r
-uname -r
-apt-cache search linux-image-unsigned-5.4.0-1042
-apt-cache source search linux-image-unsigned-5.4.0-1042
-apt-cache search source linux-image-unsigned-5.4.0-1042
-apt-cache search linux-image-unsigned-5.4.0
-apt-cache source search linux-image-unsigned-5.4.0-104
-apt-cache search linux-image-unsigned-5.4.0-104
-apt-cache search linux-image-unsigned-5.4.0-1042
-apt-cache search linux-image-5.4.0-1042
+sudo apt-get install fakeroot git libncurses-dev gawk flex bison openssl libssl-dev dkms libelf-dev libudev-dev libpci-dev libiberty-dev autoconf
 apt-get source linux-image-$(uname -r)
-ls -l
-ls -l 
-date
 cd linux-raspi-5.4.0/
-ls -l 
 chmod a+x debian/rules
 chmod a+x debian/scripts/
 chmod a+x debian/scripts/*
 chmod a+x debian/scripts/misc/*
-LANG=C fakeroot debian/rules clean
-apt install fakeroot
 LANG=C fakeroot debian/rules clean
 LANG=C fakeroot debian/rules editconfigs
 vim debian.raspi/changelog 
@@ -37,25 +19,10 @@ LANG=C fakeroot debian/rules clean
 LANG=C time fakeroot debian/rules binary-headers binary-generic binary-perarch
 LANG=C fakeroot debian/rules binary
 LANG=C time fakeroot debian/rules binary
-ls -l ../
-scripts/config --disable MODULE_SIG
 ./scripts/config --disable MODULE_SIG
 ./scripts/config --disable DEBUG_INFO
 make localmodconfig
-cat ./debian/linux-headers-5.4.0-1048.53-hugetlb-raspi/usr/src/linux-headers-5.4.0-1048.53-hugetlb-raspi/Makefile | tail
-ls ./debian/linux-headers-5.4.0-1048.53-hugetlb-raspi/usr/src/linux-headers-5.4.0-1048.53-hugetlb-raspi/Makefile
-ls -l ./debian/linux-headers-5.4.0-1048.53-hugetlb-raspi/usr/src/linux-headers-5.4.0-1048.53-hugetlb-raspi/Makefile
-make clean
-cd ../
-ls -l 
-rm -rf ./linux-raspi*
-apt-cache search linux-image-5.4.0- | grep rasp
-apt-cache search linux-image-unsigned-5.4.0- | grep rasp
-apt-cache search linux-image-unsigned | grep rasp
-apt-cache search linux-image-unsigned
-uname -r
-apt-cache search linux-image-unsigned | grep -i rasp
-apt-cache search linux-image | grep -i rasp
+
 apt-get source linux-image-5.4.0-1048-raspi
 cd linux-raspi-5.4.0/
 chmod a+x debian/rules debian/scripts/* debian/scripts/misc/*
@@ -92,11 +59,3 @@ LANG=C fakeroot debian/rules clean
 ls -l /home/ctrahey/linux-raspi-5.4.0/debian/linux-libc-dev/usr/include
 rm -rf /home/ctrahey/linux-raspi-5.4.0/debian/linux-libc-dev/usr/include/aarch64-linux-gnu/
 time LANG=C fakeroot debian/rules binary-headers binary-arch
-ls -l ../*.deb
-ls -l ../*hugetlb01*.deb
-ls -lh ../*hugetlb01*.deb
-uname -a
-history -w ~/history.txt
-vim ~/history.txt 
-vim /home/ctrahey/history.txt 
-history -w /home/ctrahey/history.txt

@@ -16,6 +16,7 @@ import os
 import argparse
 import os.path
 import random
+from string import Template
 
 import yaml
 from yaml import load, dump
@@ -42,11 +43,14 @@ def check_dest(destination):
     return True
 
 
+def address_for_node(cidr: str, offset: int, node_index, keep_mask=True):
+    draft = cidr.replace('.0/', f".{node_index + offset}/")
+    if keep_mask is False:
+        return draft.split('/')[0]
+    return draft
+
 def compile_network_stanzas(cfg, hardware, node_role, node_index):
     from pprint import pprint as pp
-
-    def address_for_node(cidr: str, offset: int):
-        return cidr.replace('.0/', f".{node_index + offset}/")
 
     profile = cfg['networkHardwareProfiles'][hardware]
     device_alias = {}
@@ -67,7 +71,7 @@ def compile_network_stanzas(cfg, hardware, node_role, node_index):
         nw = networks[att['network']]
         block = {
             'id': att['vlan'],
-            'addresses': [address_for_node(nw['cidr'], nw['offset'])] if att.get('staticIPv4', False) else [],
+            'addresses': [address_for_node(nw['cidr'], nw['offset'], node_index)] if att.get('staticIPv4', False) else [],
             'link': device_alias.get(att['device'], att['device']),
             'dhcp4': att.get('dhcp', False) and not att.get('staticIPv4', False),
             'nameservers': {
@@ -84,6 +88,44 @@ def compile_network_stanzas(cfg, hardware, node_role, node_index):
         'vlans': vlans
     }
     return netwk
+
+def workloads_stanzas(cfg, node_role, node_index, network_setup):
+    if node_role != 'control':
+        return []
+    base = os.path.normpath(os.path.dirname(__file__))
+
+    def stanza(src, dst, substitutions: dict = None):
+        with open(f"{base}/workloads/{src}") as this_file:
+            content = str(this_file.read())
+        if substitutions is not None:
+            print(f"doing substitution on {src}")
+            content = Template(content).safe_substitute(**substitutions)
+        return {
+            'path': dst,
+            'content': content,
+            'permissions': '0644',
+            'owner': 'root:root'
+        }
+    files = []
+    nwk = cfg['network']['networks'][cfg['network']['apiserverAttachment']]
+    subs = {'CONFIG_ID': 'main' if node_index == 1 else 'backup',
+            'KUBEAPI': cfg['network']['kubeAPI'],
+            'BACKENDPORT': cfg['network']['apiBackendPort'],
+            'FRONTENDPORT': cfg['network']['apiFrontendPort'],
+            'PODSUBNET': cfg['network']['podCIDR'],
+            'SVCSUBNET': cfg['network']['svcCIDR'],
+            'SERVER1IP': address_for_node(nwk['cidr'], nwk['offset'], 1, False),
+            'SERVER2IP': address_for_node(nwk['cidr'], nwk['offset'], 2, False),
+            'SERVER3IP': address_for_node(nwk['cidr'], nwk['offset'], 3, False)
+            }
+    files.append(stanza('keepalived.conf','/etc/keepalived/keepalived.conf', subs))
+    files.append(stanza('keepalived.yaml', '/etc/kubernetes/manifests/keepalived.yaml', subs))
+    files.append(stanza('check_apiserver.sh', '/etc/keepalived/check_apiserver.sh', subs))
+    files.append(stanza('haproxy.cfg', '/etc/haproxy/haproxy.cfg', subs))
+    files.append(stanza('haproxy.yaml', '/etc/kubernetes/manifests/haproxy.yaml', subs))
+    files.append(stanza('kubeadmin.yaml', '/etc/kubernetes/custom-kubeadmin.yaml', subs))
+    files.append(stanza('20auto-upgrades', '/etc/apt/apt.conf.d/20auto-upgrades'))
+    return files
 
 
 def main(cfg, hardware, node_role, node_index, destination, dry_run):
@@ -116,6 +158,15 @@ def main(cfg, hardware, node_role, node_index, destination, dry_run):
     outfile('meta-data', meta_out)
     with open(f"{base}/setup.sh") as setup_file:
         setup_contents = setup_file.read()
+    files_stanza = [
+        {
+            'path': '/usr/bin/setup.sh',
+            'content': str(setup_contents),
+            'permissions': '0744',
+            'owner': 'root:root'
+        }
+    ]
+    files_stanza.extend(workloads_stanzas(cfg, node_role, node_index, netwk))
     userdata = {
         'chpasswd': {
             'expire': False,
@@ -131,23 +182,20 @@ def main(cfg, hardware, node_role, node_index, destination, dry_run):
                 'lock_passwd': False,
                 'shell': '/bin/bash',
                 'passwd': pw_hash,
-                'ssh_authorized_keys': cfg['ssh_authorized_keys'],
+                # 'ssh_authorized_keys': cfg['ssh_authorized_keys'],
                 'sudo': 'ALL=(ALL) NOPASSWD:ALL'
             }
         ],
-        'package_update': True,
+        'package_update': False,
         'package_upgrade': False,
-        'write_files': [
-            {
-                'path': '/usr/bin/setup.sh',
-                'content': str(setup_contents),
-                'permissions': '0744',
-                'owner': 'root:root'
-            }
-        ],
+        'write_files': files_stanza,
         'runcmd': [
-            ['apt-mark', 'hold', 'linux-firmware', 'linux-headers-raspi', 'linux-image-raspi', 'linux-raspi', 'linux-base']
-            # ['/usr/bin/setup.sh']
+            'dpkg-reconfigure unattended-upgrades -f noninteractive',
+            ['/usr/bin/setup.sh']
+            # need to install  libdw1 libunwind8 linux-tools-common
+            # Boot message: arbitrary executable file formats file system automount point not supported
+            # 'dpkg -i /boot/firmware/custom_kernel/*.deb'
+
         ]
     }
     userdata_out = yaml.dump(userdata, width=1000)

@@ -3,13 +3,20 @@ overwrite_boot: ./bootdir_base/system-boot
 image: ./bootdir_base/image.img
 network:
   kubeAPI: 10.0.100.100
+  apiBackendPort: 6443 # Port for apiserver to bind
+  apiFrontendPort: 6442 # port for HAProxy to bind
   podCIDR: 10.96.0.0/11
-  svcCIDR: 10.128.0.0/11
+  svcCIDR: 10.128.0.0/12
+  apiserverAttachment: dmz
   networks:
     dmz:
       gateway: 10.0.0.253
-      cidr: 10.0.0.0/11
-      offset: 1
+      cidr: 10.0.100.0/11
+      offset: 0
+      dns:
+        - 10.0.10.0
+        - 8.8.8.8
+        - 8.8.4.4
     control:
       gateway: 10.32.0.254
       cidr: 10.32.0.0/11
@@ -47,7 +54,7 @@ network:
     control:
       - network: dmz
         vlan: 20
-        staticIPv4: false
+        staticIPv4: true
         dhcp: false
         device: k8s
       - network: control
