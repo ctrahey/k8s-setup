@@ -12,6 +12,10 @@ Then per-host values are given as script parameters (though it will prompt for p
 @todo There are still portions of the script that hard code values specific to me, and therefore
 require touch-ups for sharing (like username created on hosts). These should be factored out to config.yaml 
 
+1. Flash SDCard (e.g. BalenaEtcher). Remove and re-insert to get system-boot mounted
+2. copy bootdir_base (custom kernel) (this step could be removed by minting a fresh image)
+3. Run this script to customize cloud-init
+4. Boot up!
 ```commandline
 ./configure-sdcard.py -d /Volumes/system-boot -t worker -i 1
 ```
