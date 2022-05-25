@@ -10,7 +10,7 @@ LOOPDEVPLACEHOLDER=--LOOPDEVNAME--
 
 BLKSZ=$(blockdev --getss $DEV)
 MIN_UNUSED=$(( ((1024*1024*256)) / $BLKSZ)) # Only change partition size if it has more than 256 MB free space
-PARTITION_PADDING=131072 # Always add one padding block when resizing.
+PARTITION_PADDING_PCT=15 # some padding for misc. filesystem overhead
 sfdisk -d /dev/sda > /tmp/original_fdisk.txt
 cat << EOF > /tmp/new.sfdisk
 label: dos
@@ -21,7 +21,6 @@ unit: sectors
 EOF
 
 # add partitions to the fdisk file
-CURRENT_OFFSET=2048 # room for the MBR itself, 1MB
 TOTAL_SIZE=2048
 CURRENT_INDEX=1
 for DVC in $(ls -f /dev/sda[0-9] | xargs -n 1)
@@ -39,13 +38,15 @@ do
   # If this size is more than MIN_UNUSED blocks less than the size in the partition table, update the size
   THIS_GAP=$((ORIG_SIZE - THIS_SIZE))
   if [ "$THIS_GAP" -gt "$MIN_UNUSED" ]; then
-    ((THIS_SIZE += PARTITION_PADDING))
+    echo "Resizing partition for $DVC. Basis: $THIS_SIZE"
+    THIS_SIZE=$(($THIS_SIZE * (100+$PARTITION_PADDING_PCT) / 100))
+    echo "Final padded size: $THIS_SIZE"
   else
     THIS_SIZE=$ORIG_SIZE
   fi
-  echo ${LOOPDEVPLACEHOLDER}p${CURRENT_INDEX} : start= $CURRENT_OFFSET, size= $THIS_SIZE, $ORIG_LINE_END >> /tmp/new.sfdisk
+  # @TODO we need to copy labels (possibly later in the script) such as system-boot and writable.
+  echo ${LOOPDEVPLACEHOLDER}p${CURRENT_INDEX} : size= $THIS_SIZE, $ORIG_LINE_END >> /tmp/new.sfdisk
   ((TOTAL_SIZE += $THIS_SIZE))
-  ((CURRENT_OFFSET += $THIS_SIZE))
   ((CURRENT_INDEX += 1))
 done
 # TOTAL_SIZE is number of blocks. Here calculate total bytes
@@ -53,7 +54,7 @@ TOTAL_BYTES=$(($TOTAL_SIZE * $BLKSZ))
 # and derive MB by dividing by (1024*1024)
 TOTAL_MB=$(($TOTAL_BYTES / 1048576))
 # Pad size for MBR - I think it is only 512 Bytes, so this is slightly generous
-((TOTAL_MB += 2))
+((TOTAL_MB += 256))
 
 # @todo confirm space is available on local drive for this image.
 # AVAIL=$(df --output=avail . | tail -n 1)
@@ -66,7 +67,7 @@ ls -l /tmp/newimage.img
 LOOPDEV=$(losetup --show -fP /tmp/newimage.img)
 echo We have a device at $LOOPDEV attached to /tmp/newimage.img ready for formatting
 # @todo use placeholder for entire device path
-cat /tmp/new.sfdisk | sed -E "s/--LOOPDEVNAME--/$LOOPDEV/" | sfdisk $LOOPDEV
+cat /tmp/new.sfdisk | sed -e "s~--LOOPDEVNAME--~$LOOPDEV~" | sfdisk $LOOPDEV
 
 CURRENT_INDEX=1
 for DVC in $(ls -f /dev/sda[0-9] | xargs -n 1)
@@ -75,7 +76,13 @@ do
   # @TODO Make Filesystems first!!
   TYPE=$(lsblk -o FSTYPE $DVC | tail -n 1)
   echo running mkfs.$TYPE ${LOOPDEV}p${CURRENT_INDEX}
-  mkfs.$TYPE ${LOOPDEV}p${CURRENT_INDEX}
+  if [[ "$TYPE" = "ext4" ]]; then
+    echo ext4 detected, so trying without journal
+    mkfs.$TYPE -O ^has_journal ${LOOPDEV}p${CURRENT_INDEX}
+  else
+    echo not ext4, so mkfs with no options
+    mkfs.$TYPE ${LOOPDEV}p${CURRENT_INDEX}
+  fi
   umount -q /mnt/source-$DVCHASH
   mkdir -p /mnt/source-$DVCHASH
   mount -o ro --source $DVC --target /mnt/source-$DVCHASH
@@ -84,7 +91,7 @@ do
   mount -o rw --source ${LOOPDEV}p${CURRENT_INDEX} --target /mnt/target-$DVCHASH
   echo copying files from $DVC to ${LOOPDEV}p${CURRENT_INDEX}
   echo which is /mnt/source-$DVCHASH to /mnt/target-$DVCHASH
-  rsync -a /mnt/source-$DVCHASH/* /mnt/target-$DVCHASH/
+  rsync -a --info=progress2 /mnt/source-$DVCHASH/* /mnt/target-$DVCHASH/
   ((CURRENT_INDEX += 1))
 done
 
@@ -95,6 +102,6 @@ do
   DVCHASH=D$(echo $DVC | md5sum | awk '{print $1}')
   umount -q /mnt/source-$DVCHASH
   umount -q /mnt/target-$DVCHASH
-  losetup -d $LOOPDEV
 done
+losetup -d $LOOPDEV
 rm /tmp/newimage.img

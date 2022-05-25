@@ -70,26 +70,34 @@ def compile_network_stanzas(cfg, hardware, node_role, node_index):
     for att in cfg['netAttachments'][node_role]:
         nw = networks[att['network']]
         block = {
-            'id': att['vlan'],
             'addresses': [address_for_node(nw['cidr'], nw['offset'], node_index)] if att.get('staticIPv4', False) else [],
-            'link': device_alias.get(att['device'], att['device']),
             'dhcp4': att.get('dhcp', False) and not att.get('staticIPv4', False),
             'nameservers': {
                 'addresses': nw.get('dns', [])
             }
         }
         if att.get('staticIPv4', False) and 'gateway' in nw:
-            block['gateway4'] = nw['gateway']
-        vlans[att['network']] = block
+            block['routes'] = [{'to':'default', 'via': nw['gateway']}]
+            if 'table' in att:
+                block['routes'][0]['table'] = att['table']
+        if att['vlan']:
+            block['id'] = att['vlan']
+            block['link'] = device_alias.get(att['device'], att['device'])
+            vlans[att['network']] = block
+        else:
+            for en in ethernets:
+                if en == device_alias.get(att['device'], att['device']):
+                    ethernets[en].update(block)
     netwk = {
         'version': 2,
         'ethernets': ethernets,
-        'bonds': {},
-        'vlans': vlans
+#        'bonds': {},
+#       'vlans': vlans
     }
     return netwk
 
-def workloads_stanzas(cfg, node_role, node_index, network_setup):
+
+def workloads_stanzas(cfg, node_role, node_index):
     if node_role != 'control':
         return []
     base = os.path.normpath(os.path.dirname(__file__))
@@ -110,6 +118,7 @@ def workloads_stanzas(cfg, node_role, node_index, network_setup):
     nwk = cfg['network']['networks'][cfg['network']['apiserverAttachment']]
     subs = {'CONFIG_ID': 'main' if node_index == 1 else 'backup',
             'KUBEAPI': cfg['network']['kubeAPI'],
+            'APILINK': cfg['network']['apiserverAttachment'],
             'BACKENDPORT': cfg['network']['apiBackendPort'],
             'FRONTENDPORT': cfg['network']['apiFrontendPort'],
             'PODSUBNET': cfg['network']['podCIDR'],
@@ -166,7 +175,7 @@ def main(cfg, hardware, node_role, node_index, destination, dry_run):
             'owner': 'root:root'
         }
     ]
-    files_stanza.extend(workloads_stanzas(cfg, node_role, node_index, netwk))
+    files_stanza.extend(workloads_stanzas(cfg, node_role, node_index))
     userdata = {
         'chpasswd': {
             'expire': False,

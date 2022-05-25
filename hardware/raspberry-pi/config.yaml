@@ -57,16 +57,17 @@ network:
         staticIPv4: true
         dhcp: false
         device: k8s
+        table: 70
       - network: control
         staticIPv4: true
         dhcp: false
-        vlan: 10
+        vlan: false
         device: k8s
     worker:
       - network: worker
         staticIPv4: true
         dhcp: false
-        vlan: 10
+        vlan: false
         device: k8s
       - network: storage
         staticIPv4: true
